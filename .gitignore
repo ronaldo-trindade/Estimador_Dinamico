@@ -1,0 +1,20 @@
+# Credenciais — nunca commitar
+.env
+
+# Virtualenv
+.venv/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Gunicorn
+gunicorn.pid
+
+# Editor
+.vscode/
+.idea/
+*.swp
+*~
