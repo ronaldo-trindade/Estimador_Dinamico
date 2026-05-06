@@ -1,0 +1,750 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Estimador de Taxas — Bitcoin Node</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+  <script src="/assets/socket.io.min.js"></script>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:       #0d1117;
+      --surface:  #161b22;
+      --border:   #30363d;
+      --muted:    #8b949e;
+      --text:     #e6edf3;
+      --orange:   #f7931a;
+      --green:    #3fb950;
+      --yellow:   #d29922;
+      --red:      #f85149;
+      --blue:     #58a6ff;
+    }
+
+    body {
+      font-family: 'Segoe UI', system-ui, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      padding: 1.5rem;
+    }
+
+    /* ── Header ── */
+    header {
+      display: flex;
+      align-items: center;
+      gap: 1rem;
+      margin-bottom: 1.5rem;
+      flex-wrap: wrap;
+    }
+    header h1 { font-size: 1.4rem; font-weight: 700; color: var(--orange); }
+    header p  { font-size: 0.82rem; color: var(--muted); }
+
+    .status-dot {
+      width: 8px; height: 8px;
+      border-radius: 50%;
+      background: var(--muted);
+      flex-shrink: 0;
+      transition: background 0.3s;
+    }
+    .status-dot.live { background: var(--green); box-shadow: 0 0 6px var(--green); }
+
+    #status-label { font-size: 0.78rem; color: var(--muted); margin-left: -0.5rem; }
+
+    /* ── Grid ── */
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
+      gap: 1.25rem;
+    }
+    .span2 { grid-column: span 2; }
+
+    /* ── Card ── */
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 1.25rem;
+    }
+    .card-title {
+      font-size: 0.72rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--muted);
+      margin-bottom: 1rem;
+    }
+
+    /* ── Fee estimates ── */
+    .fee-grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 0.75rem;
+    }
+    @media (max-width: 700px) { .fee-grid { grid-template-columns: repeat(2, 1fr); } }
+
+    .fee-box {
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 0.75rem;
+      text-align: center;
+    }
+    .fee-box-label { font-size: 0.72rem; color: var(--muted); margin-bottom: 0.4rem; }
+    .fee-box-value { font-size: 1.5rem; font-weight: 700; color: var(--orange); line-height: 1; }
+    .fee-box-unit  { font-size: 0.7rem; color: var(--muted); margin-top: 0.2rem; }
+    .fee-box-sub   { font-size: 0.68rem; color: var(--muted); margin-top: 0.3rem; }
+
+    /* ── Histogram ── */
+    .chart-controls {
+      display: flex;
+      gap: 0.5rem;
+      margin-bottom: 0.75rem;
+      flex-wrap: wrap;
+    }
+    .toggle-btn {
+      font-size: 0.75rem;
+      padding: 0.25rem 0.65rem;
+      border-radius: 5px;
+      border: 1px solid var(--border);
+      background: transparent;
+      color: var(--muted);
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+    .toggle-btn.active {
+      background: var(--orange);
+      border-color: var(--orange);
+      color: #000;
+      font-weight: 600;
+    }
+    .chart-wrap { position: relative; height: 240px; }
+
+    /* ── Stat row ── */
+    .stat-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      padding: 0.4rem 0;
+      border-bottom: 1px solid #21262d;
+      font-size: 0.88rem;
+    }
+    .stat-row:last-child { border-bottom: none; }
+    .stat-label { color: var(--muted); }
+    .stat-value { font-weight: 600; }
+    .c-orange { color: var(--orange); }
+    .c-green  { color: var(--green);  }
+    .c-yellow { color: var(--yellow); }
+    .c-red    { color: var(--red);    }
+    .c-blue   { color: var(--blue);   }
+
+    /* ── Calculator ── */
+    .calc-row {
+      display: flex;
+      gap: 0.5rem;
+      align-items: center;
+      margin-bottom: 1rem;
+    }
+    .calc-row label { font-size: 0.82rem; color: var(--muted); white-space: nowrap; }
+    .calc-row input {
+      flex: 1;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      color: var(--text);
+      padding: 0.4rem 0.65rem;
+      border-radius: 6px;
+      font-size: 0.88rem;
+    }
+    .calc-row input:focus { outline: none; border-color: var(--orange); }
+
+    .calc-table { width: 100%; border-collapse: collapse; font-size: 0.83rem; }
+    .calc-table th {
+      text-align: left;
+      color: var(--muted);
+      font-weight: 600;
+      font-size: 0.72rem;
+      text-transform: uppercase;
+      padding: 0.3rem 0.5rem;
+      border-bottom: 1px solid var(--border);
+    }
+    .calc-table td { padding: 0.45rem 0.5rem; border-bottom: 1px solid #21262d; }
+    .calc-table tr:last-child td { border-bottom: none; }
+    .saving { color: var(--green); font-weight: 600; }
+
+    /* ── Watch TX ── */
+    .watch-form { display: flex; gap: 0.5rem; margin-bottom: 0.85rem; flex-wrap: wrap; }
+    .watch-form input {
+      flex: 1;
+      min-width: 0;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      color: var(--text);
+      padding: 0.4rem 0.65rem;
+      border-radius: 6px;
+      font-size: 0.82rem;
+      font-family: monospace;
+    }
+    .watch-form input:focus { outline: none; border-color: var(--orange); }
+    .watch-form button {
+      background: var(--orange);
+      border: none;
+      color: #000;
+      padding: 0.4rem 0.85rem;
+      border-radius: 6px;
+      cursor: pointer;
+      font-weight: 700;
+      font-size: 0.82rem;
+    }
+    .watch-form button:hover { opacity: 0.85; }
+
+    .watch-list { display: flex; flex-direction: column; gap: 0.5rem; }
+    .watch-item {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 0.45rem 0.65rem;
+      font-size: 0.78rem;
+    }
+    .watch-item .w-txid { font-family: monospace; color: var(--muted); flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .watch-item .w-status { font-weight: 600; flex-shrink: 0; }
+    .w-watching  { color: var(--yellow); }
+    .w-confirmed { color: var(--green); }
+    .w-invalid   { color: var(--red); }
+    .w-remove { background: none; border: none; color: var(--muted); cursor: pointer; font-size: 0.85rem; padding: 0 0.25rem; }
+    .w-remove:hover { color: var(--red); }
+
+    /* ── Block info ── */
+    .block-badge {
+      display: inline-block;
+      background: #1a2040;
+      color: var(--blue);
+      border: 1px solid var(--blue);
+      border-radius: 4px;
+      font-size: 0.7rem;
+      font-weight: 700;
+      padding: 0.1rem 0.45rem;
+      margin-bottom: 0.75rem;
+    }
+
+    /* ── Purge feed ── */
+    .purge-feed {
+      max-height: 140px;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 0.35rem;
+    }
+    .purge-item {
+      font-size: 0.75rem;
+      color: var(--red);
+      font-family: monospace;
+      background: #2a1a1a;
+      border: 1px solid #3d1a1a;
+      border-radius: 4px;
+      padding: 0.25rem 0.5rem;
+    }
+    .purge-empty { font-size: 0.82rem; color: var(--muted); font-style: italic; }
+
+    /* ── Toast ── */
+    #toast-container {
+      position: fixed;
+      bottom: 1.5rem;
+      right: 1.5rem;
+      display: flex;
+      flex-direction: column;
+      gap: 0.5rem;
+      z-index: 999;
+    }
+    .toast {
+      background: #0d2a0d;
+      border: 1px solid var(--green);
+      border-radius: 8px;
+      padding: 0.75rem 1rem;
+      font-size: 0.82rem;
+      color: var(--green);
+      max-width: 320px;
+      animation: slideIn 0.3s ease;
+    }
+    .toast strong { display: block; margin-bottom: 0.2rem; font-size: 0.88rem; }
+    .toast .t-txid { font-family: monospace; color: var(--muted); font-size: 0.75rem; }
+    @keyframes slideIn { from { transform: translateX(100%); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
+
+    #last-updated { margin-top: 1.25rem; text-align: right; font-size: 0.72rem; color: #484f58; }
+  </style>
+</head>
+<body>
+
+<header>
+  <div>
+    <h1>⚡ Estimador de Taxas Dinâmico</h1>
+    <p>Dados direto do seu node Bitcoin — sem APIs de terceiros</p>
+  </div>
+  <div style="display:flex;align-items:center;gap:0.5rem;margin-left:auto">
+    <span class="status-dot" id="status-dot"></span>
+    <span id="status-label">Conectando...</span>
+  </div>
+</header>
+
+<!-- ── Fee Estimates ── -->
+<div class="card" style="margin-bottom:1.25rem">
+  <div class="card-title">Estimativas do Node (estimatesmartfee)</div>
+  <div class="fee-grid" id="fee-grid">
+    <div class="fee-box"><div class="fee-box-label">Próximo bloco</div><div class="fee-box-value" id="fee-1">—</div><div class="fee-box-unit">sat/vB</div><div class="fee-box-sub">~10 min</div></div>
+    <div class="fee-box"><div class="fee-box-label">3 blocos</div><div class="fee-box-value" id="fee-3">—</div><div class="fee-box-unit">sat/vB</div><div class="fee-box-sub">~30 min</div></div>
+    <div class="fee-box"><div class="fee-box-label">6 blocos</div><div class="fee-box-value" id="fee-6">—</div><div class="fee-box-unit">sat/vB</div><div class="fee-box-sub">~1 hora</div></div>
+    <div class="fee-box"><div class="fee-box-label">144 blocos</div><div class="fee-box-value" id="fee-144">—</div><div class="fee-box-unit">sat/vB</div><div class="fee-box-sub">~1 dia</div></div>
+  </div>
+</div>
+
+<div class="grid">
+
+  <!-- ── Histograma da Mempool ── -->
+  <div class="card span2">
+    <div class="card-title">Histograma da Mempool (tempo real via ZMQ)</div>
+    <div class="chart-controls">
+      <button class="toggle-btn active" id="btn-count" onclick="setMode('count')">Por transações</button>
+      <button class="toggle-btn" id="btn-vsize" onclick="setMode('vsize')">Por vsize (vB)</button>
+    </div>
+    <div class="chart-wrap">
+      <canvas id="mempool-chart"></canvas>
+    </div>
+  </div>
+
+  <!-- ── Stats da Mempool ── -->
+  <div class="card">
+    <div class="card-title">Estado Atual da Mempool</div>
+    <div id="mempool-stats">
+      <div class="stat-row"><span class="stat-label">Transações</span><span class="stat-value c-orange" id="s-count">—</span></div>
+      <div class="stat-row"><span class="stat-label">Fee mínima</span><span class="stat-value c-green" id="s-min">—</span></div>
+      <div class="stat-row"><span class="stat-label">Fee média</span><span class="stat-value c-yellow" id="s-avg">—</span></div>
+      <div class="stat-row"><span class="stat-label">Fee máxima</span><span class="stat-value c-red" id="s-max">—</span></div>
+      <div class="stat-row"><span class="stat-label">Tamanho total</span><span class="stat-value" id="s-vsize">—</span></div>
+    </div>
+  </div>
+
+  <!-- ── Último Bloco ── -->
+  <div class="card">
+    <div class="card-title">Último Bloco</div>
+    <div id="block-content">
+      <div class="stat-row"><span class="stat-label">Altura</span><span class="stat-value c-blue" id="b-height">—</span></div>
+      <div class="stat-row"><span class="stat-label">Transações</span><span class="stat-value" id="b-txcount">—</span></div>
+      <div class="stat-row"><span class="stat-label">Horário</span><span class="stat-value" id="b-time">—</span></div>
+      <div class="stat-row"><span class="stat-label">Tamanho</span><span class="stat-value" id="b-size">—</span></div>
+      <div class="stat-row"><span class="stat-label">Removidas (purge)</span><span class="stat-value c-red" id="b-purged">—</span></div>
+    </div>
+  </div>
+
+  <!-- ── Calculadora de Economia ── -->
+  <div class="card">
+    <div class="card-title">Calculadora de Economia</div>
+    <div class="calc-row">
+      <label>Tamanho da tx:</label>
+      <input type="number" id="tx-size" value="250" min="1" step="1" oninput="updateCalc()" />
+      <label>vB</label>
+    </div>
+    <table class="calc-table">
+      <thead>
+        <tr>
+          <th>Horizonte</th>
+          <th>Fee (sat/vB)</th>
+          <th>Custo (sats)</th>
+          <th>Economia</th>
+        </tr>
+      </thead>
+      <tbody id="calc-body">
+        <tr><td colspan="4" style="color:var(--muted);font-style:italic;padding:.5rem">Aguardando dados...</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <!-- ── Alerta de Confirmação ── -->
+  <div class="card">
+    <div class="card-title">Alerta de Confirmação (ZMQ)</div>
+    <div class="watch-form">
+      <input type="text" id="watch-input" placeholder="Cole o TXID aqui (64 caracteres)" />
+      <button onclick="watchTx()">Monitorar</button>
+    </div>
+    <div class="watch-list" id="watch-list">
+      <p class="purge-empty">Nenhum TXID monitorado.</p>
+    </div>
+  </div>
+
+  <!-- ── Purging Feed ── -->
+  <div class="card">
+    <div class="card-title">Transações Removidas (Purging)</div>
+    <div class="purge-feed" id="purge-feed">
+      <p class="purge-empty">Nenhuma remoção detectada ainda.</p>
+    </div>
+  </div>
+
+</div>
+
+<div id="last-updated"></div>
+<div id="toast-container"></div>
+
+<script>
+  // ── Socket.IO ──────────────────────────────────────────────────────────────
+  const socket = io({ transports: ["polling"] });
+
+  socket.on("connect", () => {
+    document.getElementById("status-dot").classList.add("live");
+    document.getElementById("status-label").textContent = "Ao vivo";
+  });
+
+  socket.on("disconnect", () => {
+    document.getElementById("status-dot").classList.remove("live");
+    document.getElementById("status-label").textContent = "Desconectado";
+  });
+
+  socket.on("mempool_update", (data) => {
+    updateChart(data.histogram);
+    updateStats(data.stats);
+    updateCalc();
+    document.getElementById("last-updated").textContent =
+      "Atualizado em " + new Date().toLocaleTimeString("pt-BR");
+  });
+
+  socket.on("fee_estimate", (data) => {
+    updateFeeEstimates(data);
+    updateCalc();
+  });
+
+  socket.on("block_found", (data) => {
+    document.getElementById("b-height").textContent  = fmt(data.height ?? "—");
+    document.getElementById("b-txcount").textContent = fmt(data.tx_count ?? "—") + " txs";
+    document.getElementById("b-time").textContent    = data.time ? new Date(data.time * 1000).toLocaleTimeString("pt-BR") : "—";
+    document.getElementById("b-size").textContent    = data.size ? fmt(data.size) + " B" : "—";
+    document.getElementById("b-purged").textContent  = fmt(data.purged_count ?? 0);
+  });
+
+  socket.on("tx_purged", (data) => {
+    addPurged(data.txids || []);
+  });
+
+  socket.on("tx_confirmed", (data) => {
+    markConfirmed(data.txid);
+    showToast(data.txid, data.block_hash);
+    playConfirmationSound();
+    showBrowserNotification(data.txid);
+  });
+
+  socket.on("watch_ack", (data) => {
+    if (data.status === "watching") {
+      addWatchItem(data.txid, "watching");
+    } else {
+      addWatchItem(data.txid, "invalid");
+    }
+  });
+
+  // ── Chart.js ───────────────────────────────────────────────────────────────
+  let chartMode = "count";
+  let chartData = null;
+  let chart = null;
+
+  const ctx = document.getElementById("mempool-chart").getContext("2d");
+  chart = new Chart(ctx, {
+    type: "bar",
+    data: {
+      labels: [],
+      datasets: [{
+        label: "Transações",
+        data: [],
+        backgroundColor: [],
+        borderColor: [],
+        borderWidth: 1,
+        borderRadius: 4,
+      }]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      animation: { duration: 400 },
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          callbacks: {
+            title: (items) => items[0].label + " sat/vB",
+            label: (item) => {
+              const v = item.raw;
+              return chartMode === "count"
+                ? `${fmt(v)} transações`
+                : `${fmt(v)} vB`;
+            }
+          }
+        }
+      },
+      scales: {
+        x: {
+          ticks: { color: "#8b949e", font: { size: 11 } },
+          grid: { color: "#21262d" },
+          title: { display: true, text: "Taxa (sat/vB)", color: "#8b949e", font: { size: 11 } }
+        },
+        y: {
+          ticks: { color: "#8b949e", font: { size: 11 } },
+          grid: { color: "#21262d" },
+          title: { display: true, text: "Transações", color: "#8b949e", font: { size: 11 }, id: "y-title" },
+          beginAtZero: true,
+        }
+      }
+    }
+  });
+
+  function updateChart(histogram) {
+    chartData = histogram;
+    const values = chartMode === "count" ? histogram.counts : histogram.vsizes;
+    chart.data.labels = histogram.labels;
+    chart.data.datasets[0].data = values;
+    chart.data.datasets[0].backgroundColor = histogram.colors.map(c => c + "cc");
+    chart.data.datasets[0].borderColor     = histogram.colors;
+    chart.options.scales.y.title.text = chartMode === "count" ? "Transações" : "vsize (vB)";
+    chart.update();
+  }
+
+  function setMode(mode) {
+    chartMode = mode;
+    document.getElementById("btn-count").classList.toggle("active", mode === "count");
+    document.getElementById("btn-vsize").classList.toggle("active", mode === "vsize");
+    if (chartData) updateChart(chartData);
+  }
+
+  // ── Stats ──────────────────────────────────────────────────────────────────
+  function updateStats(s) {
+    document.getElementById("s-count").textContent = fmt(s.tx_count);
+    document.getElementById("s-min").textContent   = s.min_rate + " sat/vB";
+    document.getElementById("s-avg").textContent   = s.avg_rate + " sat/vB";
+    document.getElementById("s-max").textContent   = s.max_rate + " sat/vB";
+    document.getElementById("s-vsize").textContent = fmtBytes(s.total_vsize);
+  }
+
+  // ── Fee Estimates ──────────────────────────────────────────────────────────
+  let feeData = {};
+
+  function updateFeeEstimates(data) {
+    feeData = data;
+    const map = {
+      next_block: "fee-1",
+      three_blocks: "fee-3",
+      six_blocks: "fee-6",
+      one_day: "fee-144",
+    };
+    for (const [key, id] of Object.entries(map)) {
+      const el = document.getElementById(id);
+      const entry = data[key];
+      if (entry && entry.sat_vb !== null) {
+        el.textContent = entry.sat_vb;
+        el.style.color = feeColor(entry.sat_vb);
+      } else {
+        el.textContent = "—";
+        el.style.color = "var(--muted)";
+        el.title = entry?.error || "";
+      }
+    }
+  }
+
+  function feeColor(sat_vb) {
+    if (sat_vb <= 3)  return "var(--green)";
+    if (sat_vb <= 10) return "var(--yellow)";
+    if (sat_vb <= 50) return "var(--orange)";
+    return "var(--red)";
+  }
+
+  // ── Calculadora ────────────────────────────────────────────────────────────
+  function updateCalc() {
+    const size = parseFloat(document.getElementById("tx-size").value) || 250;
+    const tbody = document.getElementById("calc-body");
+
+    const targets = [
+      { key: "next_block",   label: "Próximo bloco",  sub: "~10 min" },
+      { key: "three_blocks", label: "3 blocos",        sub: "~30 min" },
+      { key: "six_blocks",   label: "6 blocos",        sub: "~1 hora" },
+      { key: "one_day",      label: "144 blocos",      sub: "~1 dia"  },
+    ];
+
+    const costs = targets.map(t => {
+      const entry = feeData[t.key];
+      return entry?.sat_vb != null ? Math.round(entry.sat_vb * size) : null;
+    });
+
+    const maxCost = costs.find(c => c !== null);
+    if (maxCost === undefined) {
+      tbody.innerHTML = `<tr><td colspan="4" style="color:var(--muted);font-style:italic;padding:.5rem">Aguardando dados do node...</td></tr>`;
+      return;
+    }
+
+    tbody.innerHTML = targets.map((t, i) => {
+      const entry = feeData[t.key];
+      if (!entry || entry.sat_vb === null) {
+        return `<tr>
+          <td>${t.label}<br><span style="font-size:.72rem;color:var(--muted)">${t.sub}</span></td>
+          <td style="color:var(--muted)">—</td><td style="color:var(--muted)">—</td><td>—</td>
+        </tr>`;
+      }
+      const cost = costs[i];
+      const saving = maxCost - cost;
+      const savingHtml = saving > 0
+        ? `<span class="saving">-${fmt(saving)} sats</span>`
+        : `<span style="color:var(--muted)">referência</span>`;
+      return `<tr>
+        <td>${t.label}<br><span style="font-size:.72rem;color:var(--muted)">${t.sub}</span></td>
+        <td style="color:${feeColor(entry.sat_vb)}">${entry.sat_vb}</td>
+        <td style="font-weight:600">${fmt(cost)} sats</td>
+        <td>${savingHtml}</td>
+      </tr>`;
+    }).join("");
+  }
+
+  // ── Watch TX ───────────────────────────────────────────────────────────────
+  const watchedItems = {};   // txid -> {el, status}
+
+  function watchTx() {
+    const input = document.getElementById("watch-input");
+    const txid = input.value.trim();
+    if (!txid || watchedItems[txid]) return;
+    socket.emit("watch_tx", { txid });
+    input.value = "";
+
+    // Solicitar permissão para notificação do browser
+    if (Notification.permission === "default") Notification.requestPermission();
+  }
+
+  function addWatchItem(txid, status) {
+    const list = document.getElementById("watch-list");
+
+    // Remove placeholder
+    const placeholder = list.querySelector(".purge-empty");
+    if (placeholder) placeholder.remove();
+
+    const el = document.createElement("div");
+    el.className = "watch-item";
+    el.id = "watch-" + txid;
+    el.innerHTML = `
+      <span class="w-txid" title="${txid}">${txid.slice(0,16)}…${txid.slice(-8)}</span>
+      <span class="w-status ${statusClass(status)}">${statusText(status)}</span>
+      <button class="w-remove" onclick="removeWatch('${txid}')" title="Remover">✕</button>`;
+    list.prepend(el);
+    watchedItems[txid] = { el, status };
+  }
+
+  function markConfirmed(txid) {
+    const item = watchedItems[txid];
+    if (!item) return;
+    const statusEl = item.el.querySelector(".w-status");
+    statusEl.className = "w-status w-confirmed";
+    statusEl.textContent = "Confirmada!";
+    item.status = "confirmed";
+  }
+
+  function removeWatch(txid) {
+    socket.emit("unwatch_tx", { txid });
+    const el = document.getElementById("watch-" + txid);
+    if (el) el.remove();
+    delete watchedItems[txid];
+
+    const list = document.getElementById("watch-list");
+    if (!list.children.length) {
+      list.innerHTML = `<p class="purge-empty">Nenhum TXID monitorado.</p>`;
+    }
+  }
+
+  function statusClass(s) {
+    return s === "watching" ? "w-watching" : s === "confirmed" ? "w-confirmed" : "w-invalid";
+  }
+  function statusText(s) {
+    return s === "watching" ? "Monitorando..." : s === "confirmed" ? "Confirmada!" : "TXID inválido";
+  }
+
+  // ── Purging feed ───────────────────────────────────────────────────────────
+  const MAX_PURGE = 20;
+  let purgeCount = 0;
+
+  function addPurged(txids) {
+    if (!txids.length) return;
+    const feed = document.getElementById("purge-feed");
+    const placeholder = feed.querySelector(".purge-empty");
+    if (placeholder) placeholder.remove();
+
+    txids.forEach(entry => {
+      const el = document.createElement("div");
+      el.className = "purge-item";
+      const ts = new Date().toLocaleTimeString("pt-BR");
+      const txid = entry.txid || entry;
+      el.textContent = `[${ts}] ${txid.slice(0,16)}…${txid.slice(-8)} — removida`;
+      feed.prepend(el);
+      purgeCount++;
+    });
+
+    // Limita o feed
+    while (feed.children.length > MAX_PURGE) {
+      feed.removeChild(feed.lastChild);
+    }
+  }
+
+  // ── Toast notification ─────────────────────────────────────────────────────
+  function showToast(txid, blockHash) {
+    const container = document.getElementById("toast-container");
+    const toast = document.createElement("div");
+    toast.className = "toast";
+    toast.innerHTML = `<strong>Transação Confirmada!</strong>
+      <span class="t-txid">${txid.slice(0,20)}…${txid.slice(-8)}</span>`;
+    container.appendChild(toast);
+    setTimeout(() => toast.remove(), 8000);
+  }
+
+  // ── Som de confirmação ─────────────────────────────────────────────────────
+  function playConfirmationSound() {
+    try {
+      const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      const notes = [880, 1100, 1320];
+      notes.forEach((freq, i) => {
+        const osc  = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
+        osc.connect(gain);
+        gain.connect(audioCtx.destination);
+        osc.type = "sine";
+        osc.frequency.value = freq;
+        const t = audioCtx.currentTime + i * 0.15;
+        gain.gain.setValueAtTime(0.25, t);
+        gain.gain.exponentialRampToValueAtTime(0.001, t + 0.4);
+        osc.start(t);
+        osc.stop(t + 0.4);
+      });
+    } catch (_) {}
+  }
+
+  // ── Browser notification ───────────────────────────────────────────────────
+  function showBrowserNotification(txid) {
+    if (Notification.permission === "granted") {
+      new Notification("Transação Confirmada!", {
+        body: `TXID: ${txid.slice(0, 20)}…`,
+        icon: "https://bitcoin.org/img/icons/favicon.ico",
+      });
+    }
+  }
+
+  // ── Helpers ────────────────────────────────────────────────────────────────
+  function fmt(n) {
+    if (n === null || n === undefined || n === "—") return "—";
+    return Number(n).toLocaleString("pt-BR");
+  }
+  function fmtBytes(b) {
+    if (!b) return "—";
+    if (b < 1024) return b + " B";
+    if (b < 1024 * 1024) return (b / 1024).toFixed(1) + " KB";
+    return (b / 1024 / 1024).toFixed(2) + " MB";
+  }
+
+  // Permite monitorar via Enter no campo de TXID
+  document.getElementById("watch-input").addEventListener("keydown", e => {
+    if (e.key === "Enter") watchTx();
+  });
+
+  // Atualiza calculadora ao digitar
+  updateCalc();
+</script>
+
+</body>
+</html>
