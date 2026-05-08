@@ -4,6 +4,15 @@ Dashboard em tempo real que monitora a mempool do Bitcoin, estima taxas por hori
 
 Desenvolvido para o hackathon do curso **Bitcoin Coders — Core Craft**.
 
+## Link para o vídeo de demonstração:
+
+https://drive.google.com/file/d/1CyFIJJWvKR_c0MlTgl30C74gFoJ4Hryz/view?usp=sharing
+
+## Link para a aplicação na VPS:
+
+http://ronaldotrindade.pro.br:5000/
+
+
 ## Funcionalidades
 
 - **Histograma da mempool** — distribuição de transações por faixa de taxa (sat/vB), alternando entre contagem e vsize total
