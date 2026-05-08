@@ -4,10 +4,10 @@ After=network.target
 
 [Service]
 Type=simple
-User=ubuntu
-WorkingDirectory=/home/ubuntu/Estimador_Dinamico/backend
-EnvironmentFile=/home/ubuntu/Estimador_Dinamico/.env
-ExecStart=/home/ubuntu/Estimador_Dinamico/.venv/bin/gunicorn \
+User=bitcoin
+WorkingDirectory=/home/bitcoin/Estimador_Dinamico/backend
+EnvironmentFile=/home/bitcoin/Estimador_Dinamico/.env
+ExecStart=/home/bitcoin/Estimador_Dinamico/.venv/bin/gunicorn \
     --config gunicorn.conf.py \
     app:app
 Restart=on-failure
