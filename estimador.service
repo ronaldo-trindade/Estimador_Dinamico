@@ -1,0 +1,17 @@
+[Unit]
+Description=Estimador de Taxas Bitcoin
+After=network.target
+
+[Service]
+Type=simple
+User=ubuntu
+WorkingDirectory=/home/ubuntu/Estimador_Dinamico/backend
+EnvironmentFile=/home/ubuntu/Estimador_Dinamico/.env
+ExecStart=/home/ubuntu/Estimador_Dinamico/.venv/bin/gunicorn \
+    --config gunicorn.conf.py \
+    app:app
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
