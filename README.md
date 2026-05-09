@@ -10,7 +10,7 @@ https://drive.google.com/file/d/1CyFIJJWvKR_c0MlTgl30C74gFoJ4Hryz/view?usp=shari
 
 ## Link para a aplicação na VPS:
 
-http://ronaldotrindade.pro.br:5000/
+http://ronaldotrindade.pro.br/estimador
 
 
 ## Funcionalidades
